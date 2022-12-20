@@ -23,3 +23,6 @@ make
 srun -N 4 -C mc -p normal rget_demo
 ```
 
+## Credits
+
+The code in this folder is based on code provided by Marco Bettiol.
