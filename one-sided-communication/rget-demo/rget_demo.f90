@@ -9,7 +9,7 @@ program rget_demo
     implicit none
 
     integer, parameter :: getter_rank = 1
-    integer(kind=MPI_ADDRESS_KIND), parameter :: window_size = 7
+    integer(kind=MPI_ADDRESS_KIND), parameter :: window_size = 3
     logical, parameter :: verbose = .TRUE.
 
     integer :: ierr, world_rank, world_size, idx
@@ -20,7 +20,8 @@ program rget_demo
 
     real(kind=real64), allocatable, dimension(:) :: buffer
     integer :: buffer_offset
-    integer, allocatable, dimension(:) :: reqs
+    integer, allocatable, dimension(:) :: requests
+    integer :: request_idx
 
     ! c stuff and pointers
     type(c_ptr) :: c_window_ptr
@@ -49,7 +50,7 @@ program rget_demo
         print *, "--- Compiler version: ", compiler_version()
         print *, "--- Size of MPI_ADDRESS_KIND: ", MPI_ADDRESS_KIND
         print *, "--- Size of MPI_DOUBLE_PRECISION: ", size_of_mpi_double
-        
+
         ! getter_rank process does not contribute any local windows to the window object being created
         ! called with a nullified pointer and requesting zero bytes of memory
         ! no memory is allocated by the getter_rank process
@@ -80,14 +81,14 @@ program rget_demo
         call mpi_win_unlock(world_rank, window_object, ierr)
         call check_mpi_error(ierr, world_rank, "mpi_win_unlock")
     end if
-           
+
     if(verbose) then
         print *, "### Window at rank ", world_rank, ": ", window_ptr(:)
     end if
 
     call mpi_barrier(MPI_COMM_WORLD, ierr)
     call check_mpi_error(ierr, world_rank, "mpi_barrier")
-    
+
     if(world_rank .eq. getter_rank) then
         ! allocate buffer in getter_rank process
         ! data will be stored here
@@ -98,11 +99,11 @@ program rget_demo
         end if
 
         ! allocate requests array in getter_rank
-        !allocate(reqs(world_size + 1000), stat=ierr)
-        !if(verbose .and. ierr .ne. 0) then
-        !    print *, "Allocation of 'requests' on ", world_rank, "FAILED!"
-        !    stop 
-        !end if
+        allocate(requests(world_size - 1), stat=ierr)
+        if(verbose .and. ierr .ne. 0) then
+            print *, "Allocation of 'requests' on ", world_rank, "FAILED!"
+            stop 
+        end if
 
         buffer(:) = -1
         if(verbose) then
@@ -118,32 +119,38 @@ program rget_demo
 
         call mpi_win_lock_all(0, window_object, ierr)
         call check_mpi_error(ierr, world_rank, "mpi_win_lock_all")
-        
+
+        request_idx = 1
         buffer_offset = 1 ! store results of get at buffer(buffer_offset)
         target_offset = 0 ! no target offset, we want to get all the window
         do idx = 0, world_size - 1 ! ranks go from 0 to WORLD_SIZE - 1
            if(idx .ne. getter_rank) then
                target_offset = 0
-               !call mpi_rget(&
-               !    buffer, window_size, MPI_REAL8,&
-               !    idx, 1, window_size, MPI_REAL8,&
-               !    window_object, reqs(idx), ierr&
-               !)
-               call mpi_get(&
+               call mpi_rget(&
                    buffer(buffer_offset), window_size, MPI_REAL8,&
                    idx, target_offset, window_size, MPI_REAL8,&
-                   window_object, ierr&
+                   window_object, requests(request_idx), ierr&
                )
+               !call mpi_get(&
+               !    buffer(buffer_offset), window_size, MPI_REAL8,&
+               !    idx, target_offset, window_size, MPI_REAL8,&
+               !    window_object, ierr&
+               !)
                call check_mpi_error(ierr, world_rank, "mpi_get")
 
                ! get the offset for the next batch of data
                buffer_offset = buffer_offset + window_size
+
+               request_idx = request_idx + 1
            end if
         end do
 
+        call mpi_waitall(world_size - 1, requests, MPI_STATUSES_IGNORE, ierr)
+        call check_mpi_error(ierr, world_rank, "mpi_waitall")
+
         call mpi_win_unlock_all(window_object, ierr)
         call check_mpi_error(ierr, world_rank, "mpi_win_unlock_all")
-       
+
         if(verbose) then
             buffer_offset = 1 
             do idx = 0, world_size - 1
@@ -157,7 +164,7 @@ program rget_demo
 
         ! cleanup
         deallocate(buffer)
-        !deallocate(requests)
+        deallocate(requests)
     end if
 
     call mpi_barrier(MPI_COMM_WORLD, ierr)
@@ -170,7 +177,7 @@ program rget_demo
     call check_mpi_error(ierr, world_rank, "mpi_free_mem")
 
     call mpi_finalize(ierr)
-    
+
     contains
 
     subroutine check_mpi_error(ierror, rank, mpi_function_name)
@@ -184,7 +191,7 @@ program rget_demo
     subroutine reset_pointers(cptr, fptr)
         type(c_ptr), intent(inout) :: cptr
         real(kind=real64), pointer, dimension(:), intent(inout) :: fptr(:)
-        
+
         cptr = c_null_ptr
         nullify(fptr)
     end subroutine
