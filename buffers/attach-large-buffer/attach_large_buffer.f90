@@ -1,5 +1,6 @@
 program attach_large_buffer
    use mpi
+   use iso_fortran_env, only: stdout => output_unit
 
    integer :: rank
 
@@ -18,14 +19,17 @@ program attach_large_buffer
    call mpi_sizeof(real, real_bytes, ierr)
 
    if (rank == 0) then
-      print *, "Number of elements: ", size
-      print *, "Size of real in bytes: ", real_bytes
+      write (stdout, '(a)'), "++++++++++++++++++++++++++++++++++++++++++++++++++"
+      write (stdout, '(a,i0)'), "Number of elements: ", size
+      write (stdout, '(a,i0)'), "Size of real in bytes: ", real_bytes
    end if
    size_in_bytes = int(size, kind=8)*int(real_bytes, kind=8)
 
    if (rank == 0) then
-      print *, "Size in bytes", size_in_bytes
-      print *, "Size in bytes as int(4) [OVERFLOW]", int(size_in_bytes, kind=4)
+      write (stdout, '(a,i0)'), "Size in bytes", size_in_bytes
+      write (stdout, '(a,i0)') "Size in bytes as int(4) [OVERFLOW]", int(size_in_bytes, kind=4)
+      write (stdout, '(a)'), "++++++++++++++++++++++++++++++++++++++++++++++++++"
+      call flush (stdout)
    end if
 
    allocate (a(size))
